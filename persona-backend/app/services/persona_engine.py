@@ -51,6 +51,18 @@ def _get_client(claude_client=None):
     return anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
 
+def _mock_profile(name: str, messages: List[Dict]) -> Dict:
+    expressions = list({m["text"][:10] for m in messages[:5] if m.get("text")})[:5]
+    return _validate_profile({
+        "speech_style": 0.65,
+        "emotion_frequency": 0.5,
+        "response_pattern": "empathetic",
+        "top_expressions": expressions or ["ㅋㅋ", "ㅇㅇ", "진짜?", "맞아", "그렇구나"],
+        "initiative_score": 0.55,
+        "summary": f"{name}은(는) 친근하고 공감을 잘 하는 스타일입니다. (Mock 데이터)",
+    })
+
+
 def generate_profile(
     messages: List[Dict[str, str]],
     name: str,
@@ -58,6 +70,9 @@ def generate_profile(
 ) -> Dict:
     if not messages:
         return {}
+
+    if settings.mock_ai and not claude_client:
+        return _mock_profile(name, messages)
 
     client = _get_client(claude_client)
     messages_text = "\n".join(
@@ -101,6 +116,20 @@ def merge_profiles(
     total = old_message_count + new_message_count
     old_weight = round(old_message_count / total * 100)
     new_weight = 100 - old_weight
+
+    if settings.mock_ai and not claude_client:
+        ow, nw = old_weight / 100, new_weight / 100
+        expressions = list(dict.fromkeys(
+            new_profile.get("top_expressions", []) + old_profile.get("top_expressions", [])
+        ))[:10]
+        return _validate_profile({
+            "speech_style": old_profile.get("speech_style", 0.5) * ow + new_profile.get("speech_style", 0.5) * nw,
+            "emotion_frequency": old_profile.get("emotion_frequency", 0.5) * ow + new_profile.get("emotion_frequency", 0.5) * nw,
+            "response_pattern": new_profile.get("response_pattern", "empathetic"),
+            "top_expressions": expressions,
+            "initiative_score": old_profile.get("initiative_score", 0.5) * ow + new_profile.get("initiative_score", 0.5) * nw,
+            "summary": new_profile.get("summary", ""),
+        })
 
     client = _get_client(claude_client)
     prompt = _MERGE_PROMPT.format(

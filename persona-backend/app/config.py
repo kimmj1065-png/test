@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     anthropic_api_key: str = ""
+    mock_ai: bool = False
 
     class Config:
         env_file = ".env"

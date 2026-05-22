@@ -44,6 +44,19 @@ _RESPONSE_PATTERN_DESC = {
 }
 
 
+_MOCK_REPLIES = [
+    "그렇구나, 나도 그런 적 있어.",
+    "ㅋㅋ 진짜? 어떻게 된 거야?",
+    "음... 좀 더 얘기해줄 수 있어?",
+    "맞아, 나도 그 생각 해봤는데.",
+    "아 그래? 근데 그게 쉽지 않잖아.",
+    "ㅇㅇ 충분히 이해돼.",
+    "솔직히 말해줘서 고마워.",
+]
+
+_mock_reply_index = 0
+
+
 def _get_client(claude_client=None):
     if claude_client is not None:
         return claude_client
@@ -75,6 +88,18 @@ def generate_opening(
     scenario_config: Dict,
     claude_client=None,
 ) -> str:
+    if settings.mock_ai and not claude_client:
+        scenario_type = scenario_config.get("scenario_type", "daily")
+        openings = {
+            "apology": f"있잖아... 저번에 내가 한 말, 좀 생각해봤는데. 미안했어. (Mock - {persona_name})",
+            "conflict": f"솔직히 나는 좀 다르게 생각하거든. 얘기해도 될까? (Mock - {persona_name})",
+            "confession": f"음... 할 말이 있는데, 들어줄 수 있어? (Mock - {persona_name})",
+            "daily": f"오늘 어떻게 지냈어? ㅋㅋ (Mock - {persona_name})",
+            "comfort": f"요즘 많이 힘들어 보이더라. 괜찮아? (Mock - {persona_name})",
+            "request": f"부탁 하나 해도 돼? 좀 도움이 필요해서. (Mock - {persona_name})",
+        }
+        return openings.get(scenario_type, f"안녕! 오늘 대화해볼까? (Mock - {persona_name})")
+
     client = _get_client(claude_client)
     system = _build_system_prompt(persona_name, profile, scenario_config)
     response = client.messages.create(
@@ -93,6 +118,12 @@ def generate_reply(
     turns: List[Dict],
     claude_client=None,
 ) -> str:
+    global _mock_reply_index
+    if settings.mock_ai and not claude_client:
+        reply = _MOCK_REPLIES[_mock_reply_index % len(_MOCK_REPLIES)]
+        _mock_reply_index += 1
+        return f"{reply} (Mock - {persona_name})"
+
     client = _get_client(claude_client)
     system = _build_system_prompt(persona_name, profile, scenario_config)
     response = client.messages.create(
@@ -114,6 +145,19 @@ def generate_feedback(
     user_turns = [t for t in turns if t["role"] == "user"]
     if not user_turns:
         return {}
+
+    if settings.mock_ai and not claude_client:
+        return {
+            "score": 72,
+            "avoidant_count": 1,
+            "empathy_count": len(user_turns),
+            "direct_expression_count": max(1, len(user_turns) // 2),
+            "strengths": ["감정을 솔직하게 표현했습니다.", "상대방 말을 끝까지 들었습니다."],
+            "improvements": ["좀 더 구체적인 공감 표현을 사용해보세요.", "회피하지 말고 직접 의견을 말해보세요."],
+            "insight": "전반적으로 공감 능력이 좋으나 자기 표현을 더 강화하면 좋겠습니다. (Mock 데이터)",
+            "replay_recommendation": f"2번째 대화에서 더 직접적으로 감정을 표현해보세요. (Mock 데이터)",
+            "summary": "이번 대화에서 공감과 경청을 잘 하셨습니다. 자기 표현도 늘려보세요. (Mock 데이터)",
+        }
 
     client = _get_client(claude_client)
     turns_text = "\n".join(f"[{t['role']}] {t['content']}" for t in turns)
