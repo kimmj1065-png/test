@@ -14,6 +14,7 @@ from app.services.kakao_parser import (
     filter_by_sender,
     parse_kakao_export,
 )
+from app.services.persona_engine import generate_profile, merge_profiles
 
 router = APIRouter(prefix="/personas", tags=["personas"])
 
@@ -38,12 +39,13 @@ async def upload_kakao_file(
     created_personas = []
 
     my_messages = filter_by_sender(messages, my_name)
+    self_profile = generate_profile(my_messages, my_name)
     self_persona = Persona(
         user_id=current_user.id,
         name=my_name,
         type="self",
         message_count=len(my_messages),
-        profile_json={},
+        profile_json=self_profile,
     )
     db.add(self_persona)
     created_personas.append(self_persona)
@@ -52,12 +54,13 @@ async def upload_kakao_file(
         if speaker == my_name:
             continue
         their_messages = filter_by_sender(messages, speaker)
+        acquaintance_profile = generate_profile(their_messages, speaker)
         acquaintance_persona = Persona(
             user_id=current_user.id,
             name=speaker,
             type="acquaintance",
             message_count=len(their_messages),
-            profile_json={},
+            profile_json=acquaintance_profile,
         )
         db.add(acquaintance_persona)
         created_personas.append(acquaintance_persona)
@@ -113,3 +116,40 @@ def delete_persona(
         raise HTTPException(status_code=404, detail="페르소나를 찾을 수 없습니다.")
     db.delete(persona)
     db.commit()
+
+
+@router.post("/{persona_id}/update", response_model=PersonaResponse)
+async def update_persona(
+    persona_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    persona = (
+        db.query(Persona)
+        .filter(Persona.id == persona_id, Persona.user_id == current_user.id)
+        .first()
+    )
+    if not persona:
+        raise HTTPException(status_code=404, detail="페르소나를 찾을 수 없습니다.")
+
+    content = (await file.read()).decode("utf-8")
+    messages = parse_kakao_export(content)
+    new_messages = filter_by_sender(messages, persona.name)
+
+    if not new_messages:
+        raise HTTPException(status_code=400, detail="해당 발화자의 메시지가 없습니다.")
+
+    new_profile = generate_profile(new_messages, persona.name)
+    merged_profile = merge_profiles(
+        old_profile=persona.profile_json,
+        new_profile=new_profile,
+        old_message_count=persona.message_count,
+        new_message_count=len(new_messages),
+    )
+
+    persona.profile_json = merged_profile
+    persona.message_count = persona.message_count + len(new_messages)
+    db.commit()
+    db.refresh(persona)
+    return persona
